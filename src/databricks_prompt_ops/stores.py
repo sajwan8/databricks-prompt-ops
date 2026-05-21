@@ -71,30 +71,88 @@ class JsonListStore:
         self.file_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
 
 
+def resolve_spark_session(prefer_databricks_connect: bool = True, spark_session=None):
+    """Resolve a Spark session for Delta operations.
+
+    Resolution order:
+    1. Explicitly injected Spark session
+    2. Active pyspark session (inside Databricks notebooks/jobs)
+    3. Databricks Connect remote session
+    4. Local Spark fallback when explicitly allowed by the environment
+    """
+    if spark_session is not None:
+        return spark_session
+
+    try:
+        from pyspark.sql import SparkSession
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyspark is required for Unity Catalog / Delta storage. "
+            "Install pyspark and databricks-connect, or run inside Databricks."
+        ) from exc
+
+    active_session = SparkSession.getActiveSession()
+    if active_session is not None:
+        return active_session
+
+    if prefer_databricks_connect:
+        try:
+            from databricks.connect import DatabricksSession
+        except ImportError as exc:
+            raise RuntimeError(
+                "No active Spark session was found. For remote Unity Catalog access, "
+                "install and configure databricks-connect, then create a session with "
+                "`from databricks.connect import DatabricksSession` and "
+                "`DatabricksSession.builder.getOrCreate()`, or inject that session into the pipeline."
+            ) from exc
+
+        try:
+            return DatabricksSession.builder.getOrCreate()
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to create a Databricks Connect Spark session. "
+                "Make sure databricks-connect is installed and authenticated "
+                "with your workspace, cluster or serverless compute."
+            ) from exc
+
+    try:
+        return SparkSession.builder.getOrCreate()
+    except Exception as exc:
+        raise RuntimeError(
+            "Unable to create a Spark session. If you are running outside a Databricks cluster, "
+            "use Databricks Connect or pass an existing Spark session into the pipeline."
+        ) from exc
+
+
 class UnityCatalogDeltaStore:
     """Minimal Delta table wrapper for Unity Catalog-backed storage."""
 
-    def __init__(self, catalog: str | None, schema: str | None, table_name: str) -> None:
+    def __init__(
+        self,
+        catalog: str | None,
+        schema: str | None,
+        table_name: str,
+        prefer_databricks_connect: bool = True,
+        spark_session=None,
+    ) -> None:
         if not catalog or not schema:
             raise ValueError("Unity Catalog storage requires both catalog and schema.")
         self.catalog = catalog
         self.schema = schema
         self.table_name = table_name
+        self.prefer_databricks_connect = prefer_databricks_connect
+        self._spark_session = spark_session
 
     @property
     def full_table_name(self) -> str:
         return f"`{self.catalog}`.`{self.schema}`.`{self.table_name}`"
 
     def _spark(self):
-        try:
-            from pyspark.sql import SparkSession
-        except ImportError as exc:
-            raise RuntimeError(
-                "pyspark is required for Unity Catalog / Delta storage. "
-                "Run this pipeline on Databricks or install pyspark for integration testing."
-            ) from exc
-
-        return SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+        self._spark_session = resolve_spark_session(
+            prefer_databricks_connect=self.prefer_databricks_connect,
+            spark_session=self._spark_session,
+        )
+        return self._spark_session
 
     def ensure_schema(self) -> None:
         spark = self._spark()
@@ -124,8 +182,21 @@ class JsonPromptRegistryStore(PromptRegistryStore):
 
 
 class DeltaPromptRegistryStore(PromptRegistryStore):
-    def __init__(self, catalog: str | None, schema: str | None, table_name: str) -> None:
-        self.store = UnityCatalogDeltaStore(catalog, schema, table_name)
+    def __init__(
+        self,
+        catalog: str | None,
+        schema: str | None,
+        table_name: str,
+        prefer_databricks_connect: bool = True,
+        spark_session=None,
+    ) -> None:
+        self.store = UnityCatalogDeltaStore(
+            catalog=catalog,
+            schema=schema,
+            table_name=table_name,
+            prefer_databricks_connect=prefer_databricks_connect,
+            spark_session=spark_session,
+        )
         self._ensure_table()
         self._seed_defaults()
 
@@ -178,8 +249,21 @@ class JsonPromptRequestStore(PromptRequestStore):
 
 
 class DeltaPromptRequestStore(PromptRequestStore):
-    def __init__(self, catalog: str | None, schema: str | None, table_name: str) -> None:
-        self.store = UnityCatalogDeltaStore(catalog, schema, table_name)
+    def __init__(
+        self,
+        catalog: str | None,
+        schema: str | None,
+        table_name: str,
+        prefer_databricks_connect: bool = True,
+        spark_session=None,
+    ) -> None:
+        self.store = UnityCatalogDeltaStore(
+            catalog=catalog,
+            schema=schema,
+            table_name=table_name,
+            prefer_databricks_connect=prefer_databricks_connect,
+            spark_session=spark_session,
+        )
         self._ensure_table()
 
     def _ensure_table(self) -> None:
@@ -228,8 +312,21 @@ class JsonPromptEvaluationStore(PromptEvaluationStore):
 
 
 class DeltaPromptEvaluationStore(PromptEvaluationStore):
-    def __init__(self, catalog: str | None, schema: str | None, table_name: str) -> None:
-        self.store = UnityCatalogDeltaStore(catalog, schema, table_name)
+    def __init__(
+        self,
+        catalog: str | None,
+        schema: str | None,
+        table_name: str,
+        prefer_databricks_connect: bool = True,
+        spark_session=None,
+    ) -> None:
+        self.store = UnityCatalogDeltaStore(
+            catalog=catalog,
+            schema=schema,
+            table_name=table_name,
+            prefer_databricks_connect=prefer_databricks_connect,
+            spark_session=spark_session,
+        )
         self._ensure_table()
 
     def _ensure_table(self) -> None:
@@ -256,23 +353,33 @@ class DeltaPromptEvaluationStore(PromptEvaluationStore):
         spark.createDataFrame([record]).write.mode("append").saveAsTable(self.store.full_table_name)
 
 
-def build_prompt_stores(config: PromptOpsConfig) -> tuple[PromptRegistryStore, PromptRequestStore, PromptEvaluationStore]:
+def build_prompt_stores(
+    config: PromptOpsConfig,
+    spark_session=None,
+) -> tuple[PromptRegistryStore, PromptRequestStore, PromptEvaluationStore]:
     if config.storage.backend == StorageBackend.DELTA:
+        common_kwargs = {
+            "prefer_databricks_connect": config.storage.prefer_databricks_connect,
+            "spark_session": spark_session,
+        }
         return (
             DeltaPromptRegistryStore(
                 catalog=config.storage.catalog,
                 schema=config.storage.schema,
                 table_name=config.storage.registry_table,
+                **common_kwargs,
             ),
             DeltaPromptRequestStore(
                 catalog=config.storage.catalog,
                 schema=config.storage.schema,
                 table_name=config.storage.request_table,
+                **common_kwargs,
             ),
             DeltaPromptEvaluationStore(
                 catalog=config.storage.catalog,
                 schema=config.storage.schema,
                 table_name=config.storage.evaluation_table,
+                **common_kwargs,
             ),
         )
 
