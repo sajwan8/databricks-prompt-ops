@@ -358,8 +358,9 @@ def build_prompt_stores(
     spark_session=None,
 ) -> tuple[PromptRegistryStore, PromptRequestStore, PromptEvaluationStore]:
     if config.storage.backend == StorageBackend.DELTA:
+        prefer_databricks_connect = getattr(config.storage, "prefer_databricks_connect", True)
         common_kwargs = {
-            "prefer_databricks_connect": config.storage.prefer_databricks_connect,
+            "prefer_databricks_connect": prefer_databricks_connect,
             "spark_session": spark_session,
         }
         return (

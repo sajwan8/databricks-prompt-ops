@@ -24,9 +24,13 @@ class DatabricksPromptOpsPipeline:
     full RAG retrieval or full agent planning.
     """
 
-    def __init__(self, config: PromptOpsConfig) -> None:
+    def __init__(self, config: PromptOpsConfig, spark_session=None) -> None:
         self.config = config
-        self.registry, self.request_store, self.evaluation_store = build_prompt_stores(config)
+        self.spark_session = spark_session
+        self.registry, self.request_store, self.evaluation_store = build_prompt_stores(
+            config,
+            spark_session=spark_session,
+        )
         self.validator = PromptValidator(config.validation)
         self.evaluator = PromptEvaluator()
         self.model_client = self._build_model_client()

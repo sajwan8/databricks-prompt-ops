@@ -55,6 +55,7 @@ class StorageSettings:
     registry_table: str = "prompt_registry"
     request_table: str = "prompt_requests"
     evaluation_table: str = "prompt_evaluations"
+    prefer_databricks_connect: bool = True
 
 
 @dataclass
@@ -111,6 +112,7 @@ def load_config(config_path: str | Path) -> PromptOpsConfig:
             registry_table=storage_raw.get("registry_table", "prompt_registry"),
             request_table=storage_raw.get("request_table", "prompt_requests"),
             evaluation_table=storage_raw.get("evaluation_table", "prompt_evaluations"),
+            prefer_databricks_connect=storage_raw.get("prefer_databricks_connect", True),
         ),
         databricks=DatabricksSettings(**raw["databricks"]),
         validation=ValidationSettings(

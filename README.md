@@ -85,6 +85,8 @@ When `storage.backend = "delta"`, the pipeline automatically creates these Delta
 
 The registry table is seeded automatically with the default prompt templates on first run.
 
+When running outside a Databricks cluster, the Delta store now prefers a Databricks Connect remote Spark session when `storage.prefer_databricks_connect = true`.
+
 ### Live Databricks Integration
 
 1. Create or choose a Unity Catalog catalog and schema for the pipeline, for example `main.prompt_ops`.
@@ -99,6 +101,48 @@ The registry table is seeded automatically with the default prompt templates on 
 5. In notebooks or jobs, ensure a Spark session is available before calling the pipeline.
 6. In Databricks Model Serving or app code, call `src.databricks_prompt_ops.serving.handle_request(...)`.
 7. Point downstream RAG or agent orchestration only at prompts that return `status = "completed"`.
+
+### Databricks Connect Usage
+
+If you deploy this from your local machine, CI runner, or another non-cluster runtime, install and configure Databricks Connect first. The code now resolves Spark in this order:
+1. Reuse an explicitly passed Spark session
+2. Reuse an active Spark session
+3. Create a Databricks Connect session
+4. Fall back to plain local Spark only when Databricks Connect is not preferred
+
+Recommended pattern:
+
+```python
+from databricks.connect import DatabricksSession
+
+from src.databricks_prompt_ops.config import load_config
+from src.databricks_prompt_ops.pipeline import DatabricksPromptOpsPipeline
+
+spark = DatabricksSession.builder.getOrCreate()
+config = load_config("configs/prompt_pipeline_config.toml")
+pipeline = DatabricksPromptOpsPipeline(config, spark_session=spark)
+```
+
+You can do the same for the serving wrapper:
+
+```python
+from databricks.connect import DatabricksSession
+
+from src.databricks_prompt_ops.serving import handle_request
+
+spark = DatabricksSession.builder.getOrCreate()
+response = handle_request(payload, config_path="configs/prompt_pipeline_config.toml", spark_session=spark)
+```
+
+If you want the pipeline to create the Databricks Connect session automatically, keep this in config:
+
+```toml
+[storage]
+backend = "delta"
+prefer_databricks_connect = true
+```
+
+Then make sure Databricks Connect authentication is already configured in your environment, typically through `.databrickscfg` or the standard Databricks environment variables before the process starts.
 
 Example notebook usage:
 

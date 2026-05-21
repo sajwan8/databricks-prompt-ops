@@ -4,7 +4,7 @@ from src.databricks_prompt_ops.config import load_config
 from src.databricks_prompt_ops.pipeline import DatabricksPromptOpsPipeline
 
 
-def handle_request(payload: dict, config_path: str = "configs/prompt_pipeline_config.toml") -> dict:
+def handle_request(payload: dict, config_path: str = "configs/prompt_pipeline_config.toml", spark_session=None) -> dict:
     """Databricks-friendly serving entrypoint.
 
     Expected payload:
@@ -15,7 +15,7 @@ def handle_request(payload: dict, config_path: str = "configs/prompt_pipeline_co
     }
     """
     config = load_config(config_path)
-    pipeline = DatabricksPromptOpsPipeline(config)
+    pipeline = DatabricksPromptOpsPipeline(config, spark_session=spark_session)
     result = pipeline.process_user_message(
         user_id=payload["user_id"],
         session_id=payload["session_id"],

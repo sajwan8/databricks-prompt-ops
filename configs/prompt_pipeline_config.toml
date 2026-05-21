@@ -23,6 +23,7 @@ schema = "prompt_ops"
 registry_table = "prompt_registry"
 request_table = "prompt_requests"
 evaluation_table = "prompt_evaluations"
+prefer_databricks_connect = true
 
 [databricks]
 workspace_url = "https://your-workspace.cloud.databricks.com"
