@@ -1,0 +1,42 @@
+[
+  {
+    "name": "generic_clarification",
+    "version": "1.0.0",
+    "description": "Used to ask the user for more information when the prompt is incomplete.",
+    "template": "I need more information before I can continue. Please provide:\n{issues}",
+    "tags": [
+      "clarification",
+      "validation"
+    ]
+  },
+  {
+    "name": "llm_response",
+    "version": "1.0.0",
+    "description": "Used for plain LLM-based generation after validation succeeds.",
+    "template": "You are a helpful enterprise assistant.\nRespond to the user's request clearly and professionally.\n\nUser request:\n{user_prompt}",
+    "tags": [
+      "llm",
+      "generation"
+    ]
+  },
+  {
+    "name": "rag_intake",
+    "version": "1.0.0",
+    "description": "Used to normalize and accept RAG requests before downstream retrieval.",
+    "template": "RAG request accepted.\nUser request:\n{user_prompt}\n\nNext step: send this validated prompt into retrieval and augmentation.",
+    "tags": [
+      "rag",
+      "intake"
+    ]
+  },
+  {
+    "name": "agentic_intake",
+    "version": "1.0.0",
+    "description": "Used to normalize and accept agentic requests before downstream orchestration.",
+    "template": "Agentic request accepted.\nUser request:\n{user_prompt}\n\nNext step: send this validated prompt into the agent planner.",
+    "tags": [
+      "agentic",
+      "intake"
+    ]
+  }
+]

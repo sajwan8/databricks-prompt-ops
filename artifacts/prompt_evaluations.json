@@ -1,0 +1,62 @@
+[
+  {
+    "prompt_id": "9a4d7584-3250-459b-ba9e-9bd1eaf4616b",
+    "evaluation": {
+      "safety_score": 1.0,
+      "reliability_score": 0.85,
+      "fairness_score": 1.0,
+      "overall_score": 0.95,
+      "notes": {
+        "safety": [
+          "No major safety issues detected."
+        ],
+        "reliability": [
+          "Prompt may benefit from clearer task constraints."
+        ],
+        "fairness": [
+          "No obvious fairness issues detected."
+        ]
+      }
+    }
+  },
+  {
+    "prompt_id": "0742171c-4c13-4199-b6b8-8fa8acee3fe0",
+    "evaluation": {
+      "safety_score": 1.0,
+      "reliability_score": 0.85,
+      "fairness_score": 1.0,
+      "overall_score": 0.95,
+      "notes": {
+        "safety": [
+          "No major safety issues detected."
+        ],
+        "reliability": [
+          "Prompt may benefit from clearer task constraints."
+        ],
+        "fairness": [
+          "No obvious fairness issues detected."
+        ]
+      }
+    }
+  },
+  {
+    "prompt_id": "7a6bf491-251b-43b0-8e39-a9ad884d7ad3",
+    "evaluation": {
+      "safety_score": 1.0,
+      "reliability_score": 0.85,
+      "fairness_score": 1.0,
+      "overall_score": 0.95,
+      "notes": {
+        "safety": [
+          "No major safety issues detected."
+        ],
+        "reliability": [
+          "Prompt may benefit from clearer task constraints."
+        ],
+        "fairness": [
+          "No obvious fairness issues detected."
+        ]
+      }
+    }
+  }
+]

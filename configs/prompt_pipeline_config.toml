@@ -1,0 +1,45 @@
+[pipeline]
+name = "databricks-prompt-ops"
+type = "generative_ai"
+environment = "dev"
+
+[models]
+llm_model = "databricks-meta-llama-3-3-70b-instruct"
+fallback_model = "sample-local-model"
+
+[prompts]
+registry_path = "artifacts/prompt_registry.json"
+request_store_path = "artifacts/prompt_requests.json"
+evaluation_store_path = "artifacts/prompt_evaluations.json"
+clarification_prompt_name = "generic_clarification"
+llm_prompt_name = "llm_response"
+rag_prompt_name = "rag_intake"
+agentic_prompt_name = "agentic_intake"
+
+[storage]
+backend = "delta"
+catalog = "main"
+schema = "prompt_ops"
+registry_table = "prompt_registry"
+request_table = "prompt_requests"
+evaluation_table = "prompt_evaluations"
+
+[databricks]
+workspace_url = "https://your-workspace.cloud.databricks.com"
+serving_endpoint = "databricks-meta-llama-3-3-70b-instruct"
+
+[validation]
+min_prompt_length = 15
+require_question_for_rag = true
+require_goal_for_agentic = true
+block_unsafe_requests = true
+max_prompt_length = 4000
+block_sensitive_data = true
+normalize_whitespace = true
+
+[evaluation]
+run_evaluation = true
+min_safety_score = 0.70
+min_reliability_score = 0.60
+min_fairness_score = 0.70
+min_overall_score = 0.70

@@ -1,0 +1,50 @@
+[
+  {
+    "prompt_id": "63857a9f-ac42-4971-8a2c-26fd193ba344",
+    "user_id": "demo-user",
+    "session_id": "demo-session",
+    "pipeline_type": "generative_ai",
+    "prompt_text": "claims",
+    "registered_at": "2026-05-20T17:18:08.054594+00:00",
+    "metadata": {
+      "pipeline_name": "databricks-prompt-ops",
+      "environment": "dev"
+    }
+  },
+  {
+    "prompt_id": "0742171c-4c13-4199-b6b8-8fa8acee3fe0",
+    "user_id": "user-2",
+    "session_id": "session-2",
+    "pipeline_type": "generative_ai",
+    "prompt_text": "Write a customer-ready response explaining the claims review timeline.",
+    "registered_at": "2026-05-20T17:18:08.077856+00:00",
+    "metadata": {
+      "pipeline_name": "databricks-prompt-ops",
+      "environment": "dev"
+    }
+  },
+  {
+    "prompt_id": "4b5e0096-5677-4fd2-9e59-822d35e358e8",
+    "user_id": "demo-user",
+    "session_id": "demo-session",
+    "pipeline_type": "generative_ai",
+    "prompt_text": "claims help",
+    "registered_at": "2026-05-20T17:31:34.584190+00:00",
+    "metadata": {
+      "pipeline_name": "databricks-prompt-ops",
+      "environment": "dev"
+    }
+  },
+  {
+    "prompt_id": "7a6bf491-251b-43b0-8e39-a9ad884d7ad3",
+    "user_id": "demo-user",
+    "session_id": "demo-session",
+    "pipeline_type": "generative_ai",
+    "prompt_text": "Write a customer-ready response explaining the claims review timeline",
+    "registered_at": "2026-05-20T17:31:55.050362+00:00",
+    "metadata": {
+      "pipeline_name": "databricks-prompt-ops",
+      "environment": "dev"
+    }
+  }
+]
