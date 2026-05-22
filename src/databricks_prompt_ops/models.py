@@ -11,6 +11,7 @@ class PromptTemplate:
     version: str
     description: str
     template: str
+    source_path: str = ""
     tags: list[str] = field(default_factory=list)
 
 
@@ -20,8 +21,14 @@ class PromptRegistration:
     user_id: str
     session_id: str
     pipeline_type: str
-    prompt_text: str
+    raw_user_input: str
+    modified_prompt: str
     registered_at: str
+    validation_approach: str = "rule_based_validation"
+    inference_model_name: str | None = None
+    prompt_template_name: str | None = None
+    prompt_template_version: str | None = None
+    prompt_template_source: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -30,6 +37,7 @@ class PromptValidationReport:
     is_valid: bool
     issues: list[str] = field(default_factory=list)
     normalized_prompt: str = ""
+    validation_approach: str = "rule_based_validation"
 
 
 @dataclass
@@ -37,6 +45,11 @@ class PromptEvaluationReport:
     safety_score: float
     reliability_score: float
     fairness_score: float
+    toxicity_score: float
+    correctness_score: float
+    completeness_score: float
+    consistency_score: float
+    relevance_score: float
     overall_score: float
     notes: dict[str, list[str]] = field(default_factory=dict)
 
@@ -52,6 +65,13 @@ class PromptOpsResponse:
     evaluation_report: PromptEvaluationReport | None = None
     routed_downstream: bool = False
     llm_response: str | None = None
+    inference_model_name: str | None = None
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2)
+
+
+@dataclass
+class ModelCompletionResult:
+    content: str
+    model_name: str

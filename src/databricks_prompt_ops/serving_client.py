@@ -4,17 +4,31 @@ import json
 import os
 from urllib import request
 
+from src.databricks_prompt_ops.models import ModelCompletionResult
+
 
 class SampleModelClient:
     """Deterministic local fallback for development and testing."""
 
-    def complete(self, prompt_text: str) -> str:
+    def __init__(self, model_name: str = "sample-local-model") -> None:
+        self.model_name = model_name
+
+    def complete(self, prompt_text: str) -> ModelCompletionResult:
         lowered = prompt_text.lower()
         if "claims review timeline" in lowered:
-            return "The claims review timeline is 7 business days based on the request you provided."
+            return ModelCompletionResult(
+                content="The claims review timeline is 7 business days based on the request you provided.",
+                model_name=self.model_name,
+            )
         if "customer-ready response" in lowered:
-            return "Here is a professional customer-ready response drafted from your request."
-        return "Your validated prompt was accepted and processed successfully."
+            return ModelCompletionResult(
+                content="Here is a professional customer-ready response drafted from your request.",
+                model_name=self.model_name,
+            )
+        return ModelCompletionResult(
+            content="Your validated prompt was accepted and processed successfully.",
+            model_name=self.model_name,
+        )
 
 
 class DatabricksServingClient:
@@ -24,12 +38,19 @@ class DatabricksServingClient:
     Databricks serving endpoint is exposed for prompt execution.
     """
 
-    def __init__(self, workspace_url: str, serving_endpoint: str, api_token: str | None = None) -> None:
+    def __init__(
+        self,
+        workspace_url: str,
+        serving_endpoint: str,
+        configured_model_name: str | None = None,
+        api_token: str | None = None,
+    ) -> None:
         self.workspace_url = workspace_url.rstrip("/")
         self.serving_endpoint = serving_endpoint
+        self.configured_model_name = configured_model_name or serving_endpoint
         self.api_token = api_token or os.getenv("DATABRICKS_TOKEN", "")
 
-    def complete(self, prompt_text: str) -> str:
+    def complete(self, prompt_text: str) -> ModelCompletionResult:
         if not self.api_token:
             raise ValueError("DATABRICKS_TOKEN is not set.")
 
@@ -47,10 +68,22 @@ class DatabricksServingClient:
             body = json.loads(response.read().decode("utf-8"))
 
         if "choices" in body and body["choices"]:
-            return body["choices"][0].get("message", {}).get("content", "").strip()
+            return ModelCompletionResult(
+                content=body["choices"][0].get("message", {}).get("content", "").strip(),
+                model_name=body.get("model", self.configured_model_name),
+            )
         if "predictions" in body and body["predictions"]:
             first = body["predictions"][0]
             if isinstance(first, dict):
-                return str(first.get("content", first)).strip()
-            return str(first).strip()
-        return json.dumps(body)
+                return ModelCompletionResult(
+                    content=str(first.get("content", first)).strip(),
+                    model_name=str(first.get("model", self.configured_model_name)),
+                )
+            return ModelCompletionResult(
+                content=str(first).strip(),
+                model_name=self.configured_model_name,
+            )
+        return ModelCompletionResult(
+            content=json.dumps(body),
+            model_name=body.get("model", self.configured_model_name),
+        )

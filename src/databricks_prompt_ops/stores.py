@@ -1,58 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from importlib import resources
 from pathlib import Path
 import json
 
 from src.databricks_prompt_ops.config import PromptOpsConfig, StorageBackend
 from src.databricks_prompt_ops.models import PromptEvaluationReport, PromptRegistration, PromptTemplate
-
-
-DEFAULT_PROMPT_TEMPLATES = [
-    PromptTemplate(
-        name="generic_clarification",
-        version="1.0.0",
-        description="Used to ask the user for more information when the prompt is incomplete.",
-        template=(
-            "I need more information before I can continue. Please provide:\n"
-            "{issues}"
-        ),
-        tags=["clarification", "validation"],
-    ),
-    PromptTemplate(
-        name="llm_response",
-        version="1.0.0",
-        description="Used for plain LLM-based generation after validation succeeds.",
-        template=(
-            "You are a helpful enterprise assistant.\n"
-            "Respond to the user's request clearly and professionally.\n\n"
-            "User request:\n{user_prompt}"
-        ),
-        tags=["llm", "generation"],
-    ),
-    PromptTemplate(
-        name="rag_intake",
-        version="1.0.0",
-        description="Used to normalize and accept RAG requests before downstream retrieval.",
-        template=(
-            "RAG request accepted.\n"
-            "User request:\n{user_prompt}\n\n"
-            "Next step: send this validated prompt into retrieval and augmentation."
-        ),
-        tags=["rag", "intake"],
-    ),
-    PromptTemplate(
-        name="agentic_intake",
-        version="1.0.0",
-        description="Used to normalize and accept agentic requests before downstream orchestration.",
-        template=(
-            "Agentic request accepted.\n"
-            "User request:\n{user_prompt}\n\n"
-            "Next step: send this validated prompt into the agent planner."
-        ),
-        tags=["agentic", "intake"],
-    ),
-]
 
 
 class JsonListStore:
@@ -71,15 +25,106 @@ class JsonListStore:
         self.file_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
 
 
-def resolve_spark_session(prefer_databricks_connect: bool = True, spark_session=None):
-    """Resolve a Spark session for Delta operations.
+class PromptTemplateRepository:
+    """Loads prompt templates stored in Git-tracked YAML files."""
 
-    Resolution order:
-    1. Explicitly injected Spark session
-    2. Active pyspark session (inside Databricks notebooks/jobs)
-    3. Databricks Connect remote session
-    4. Local Spark fallback when explicitly allowed by the environment
-    """
+    def __init__(self, template_directory: str | None = None) -> None:
+        self.template_directory = Path(template_directory) if template_directory else None
+
+    def _parse_yaml_text(self, text: str) -> dict:
+        try:
+            import yaml  # type: ignore
+
+            return yaml.safe_load(text)
+        except ImportError:
+            return self._fallback_parse_yaml_text(text)
+
+    def _fallback_parse_yaml_text(self, text: str) -> dict:
+        data: dict = {"tags": []}
+        lines = text.splitlines()
+        index = 0
+
+        while index < len(lines):
+            line = lines[index]
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                index += 1
+                continue
+
+            if stripped == "template: |":
+                index += 1
+                block_lines: list[str] = []
+                while index < len(lines):
+                    block_line = lines[index]
+                    if block_line.startswith("  "):
+                        block_lines.append(block_line[2:])
+                        index += 1
+                        continue
+                    if block_line == "":
+                        block_lines.append("")
+                        index += 1
+                        continue
+                    break
+                data["template"] = "\n".join(block_lines).rstrip("\n")
+                continue
+
+            if stripped == "tags:":
+                index += 1
+                tags: list[str] = []
+                while index < len(lines):
+                    tag_line = lines[index]
+                    if tag_line.startswith("  - "):
+                        tags.append(tag_line[4:].strip())
+                        index += 1
+                        continue
+                    break
+                data["tags"] = tags
+                continue
+
+            if ":" in line:
+                key, value = line.split(":", 1)
+                value = value.strip()
+                data[key.strip()] = value.strip("'\"")
+            index += 1
+
+        return data
+
+    def _load_template_from_path(self, path: Path) -> PromptTemplate:
+        payload = self._parse_yaml_text(path.read_text(encoding="utf-8"))
+        payload["source_path"] = path.as_posix()
+        return PromptTemplate(**payload)
+
+    def _load_template_from_resource(self, resource) -> PromptTemplate:
+        payload = self._parse_yaml_text(resource.read_text(encoding="utf-8"))
+        payload["source_path"] = f"package:{resource.name}"
+        return PromptTemplate(**payload)
+
+    def load_all(self) -> list[PromptTemplate]:
+        if self.template_directory and self.template_directory.exists():
+            return sorted(
+                [self._load_template_from_path(path) for path in self.template_directory.glob("*.yaml")],
+                key=lambda item: item.name,
+            )
+
+        template_package = resources.files("databricks_prompt_ops.prompt_management.templates")
+        return sorted(
+            [
+                self._load_template_from_resource(resource)
+                for resource in template_package.iterdir()
+                if resource.name.endswith(".yaml")
+            ],
+            key=lambda item: item.name,
+        )
+
+    def get(self, name: str) -> PromptTemplate:
+        for template in self.load_all():
+            if template.name == name:
+                return template
+        raise KeyError(f"Prompt template '{name}' not found in the template repository.")
+
+
+def resolve_spark_session(prefer_databricks_connect: bool = True, spark_session=None):
+    """Resolve a Spark session for Delta operations."""
     if spark_session is not None:
         return spark_session
 
@@ -165,20 +210,17 @@ class PromptRegistryStore:
 
 
 class JsonPromptRegistryStore(PromptRegistryStore):
-    def __init__(self, file_path: str | Path) -> None:
+    def __init__(self, file_path: str | Path, template_repository: PromptTemplateRepository) -> None:
         self.store = JsonListStore(file_path)
+        self.template_repository = template_repository
         self._seed_defaults()
 
     def _seed_defaults(self) -> None:
-        if self.store.load():
-            return
-        self.store.save([asdict(item) for item in DEFAULT_PROMPT_TEMPLATES])
+        records = [asdict(item) for item in self.template_repository.load_all()]
+        self.store.save(records)
 
     def get(self, name: str) -> PromptTemplate:
-        for item in self.store.load():
-            if item["name"] == name:
-                return PromptTemplate(**item)
-        raise KeyError(f"Prompt template '{name}' not found.")
+        return self.template_repository.get(name)
 
 
 class DeltaPromptRegistryStore(PromptRegistryStore):
@@ -187,6 +229,7 @@ class DeltaPromptRegistryStore(PromptRegistryStore):
         catalog: str | None,
         schema: str | None,
         table_name: str,
+        template_repository: PromptTemplateRepository,
         prefer_databricks_connect: bool = True,
         spark_session=None,
     ) -> None:
@@ -197,6 +240,7 @@ class DeltaPromptRegistryStore(PromptRegistryStore):
             prefer_databricks_connect=prefer_databricks_connect,
             spark_session=spark_session,
         )
+        self.template_repository = template_repository
         self._ensure_table()
         self._seed_defaults()
 
@@ -210,6 +254,7 @@ class DeltaPromptRegistryStore(PromptRegistryStore):
                 version STRING,
                 description STRING,
                 template STRING,
+                source_path STRING,
                 tags ARRAY<STRING>
             )
             USING DELTA
@@ -218,19 +263,13 @@ class DeltaPromptRegistryStore(PromptRegistryStore):
 
     def _seed_defaults(self) -> None:
         spark = self.store._spark()
-        if spark.table(self.store.full_table_name).limit(1).count() > 0:
-            return
-        rows = [asdict(item) for item in DEFAULT_PROMPT_TEMPLATES]
-        spark.createDataFrame(rows).write.mode("append").saveAsTable(self.store.full_table_name)
+        records = [asdict(item) for item in self.template_repository.load_all()]
+        spark.createDataFrame(records).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
+            self.store.full_table_name
+        )
 
     def get(self, name: str) -> PromptTemplate:
-        from pyspark.sql import functions as F
-
-        spark = self.store._spark()
-        row = spark.table(self.store.full_table_name).where(F.col("name") == name).orderBy("version", ascending=False).first()
-        if row is None:
-            raise KeyError(f"Prompt template '{name}' not found.")
-        return PromptTemplate(**row.asDict())
+        return self.template_repository.get(name)
 
 
 class PromptRequestStore:
@@ -276,8 +315,14 @@ class DeltaPromptRequestStore(PromptRequestStore):
                 user_id STRING,
                 session_id STRING,
                 pipeline_type STRING,
-                prompt_text STRING,
+                raw_user_input STRING,
+                modified_prompt STRING,
                 registered_at STRING,
+                validation_approach STRING,
+                inference_model_name STRING,
+                prompt_template_name STRING,
+                prompt_template_version STRING,
+                prompt_template_source STRING,
                 metadata MAP<STRING, STRING>
             )
             USING DELTA
@@ -288,7 +333,9 @@ class DeltaPromptRequestStore(PromptRequestStore):
         spark = self.store._spark()
         record = asdict(prompt)
         record["metadata"] = {key: str(value) for key, value in record["metadata"].items()}
-        spark.createDataFrame([record]).write.mode("append").saveAsTable(self.store.full_table_name)
+        spark.createDataFrame([record]).write.mode("append").option("mergeSchema", "true").saveAsTable(
+            self.store.full_table_name
+        )
 
 
 class PromptEvaluationStore:
@@ -302,12 +349,9 @@ class JsonPromptEvaluationStore(PromptEvaluationStore):
 
     def save(self, prompt_id: str, report: PromptEvaluationReport) -> None:
         records = self.store.load()
-        records.append(
-            {
-                "prompt_id": prompt_id,
-                "evaluation": asdict(report),
-            }
-        )
+        payload = asdict(report)
+        payload["prompt_id"] = prompt_id
+        records.append(payload)
         self.store.save(records)
 
 
@@ -339,6 +383,11 @@ class DeltaPromptEvaluationStore(PromptEvaluationStore):
                 safety_score DOUBLE,
                 reliability_score DOUBLE,
                 fairness_score DOUBLE,
+                toxicity_score DOUBLE,
+                correctness_score DOUBLE,
+                completeness_score DOUBLE,
+                consistency_score DOUBLE,
+                relevance_score DOUBLE,
                 overall_score DOUBLE,
                 notes MAP<STRING, ARRAY<STRING>>
             )
@@ -350,13 +399,17 @@ class DeltaPromptEvaluationStore(PromptEvaluationStore):
         spark = self.store._spark()
         record = asdict(report)
         record["prompt_id"] = prompt_id
-        spark.createDataFrame([record]).write.mode("append").saveAsTable(self.store.full_table_name)
+        spark.createDataFrame([record]).write.mode("append").option("mergeSchema", "true").saveAsTable(
+            self.store.full_table_name
+        )
 
 
 def build_prompt_stores(
     config: PromptOpsConfig,
     spark_session=None,
 ) -> tuple[PromptRegistryStore, PromptRequestStore, PromptEvaluationStore]:
+    template_repository = PromptTemplateRepository(getattr(config.prompts, "template_directory", None))
+
     if config.storage.backend == StorageBackend.DELTA:
         prefer_databricks_connect = getattr(config.storage, "prefer_databricks_connect", True)
         common_kwargs = {
@@ -368,6 +421,7 @@ def build_prompt_stores(
                 catalog=config.storage.catalog,
                 schema=config.storage.schema,
                 table_name=config.storage.registry_table,
+                template_repository=template_repository,
                 **common_kwargs,
             ),
             DeltaPromptRequestStore(
@@ -385,7 +439,7 @@ def build_prompt_stores(
         )
 
     return (
-        JsonPromptRegistryStore(Path(config.prompts.registry_path)),
+        JsonPromptRegistryStore(Path(config.prompts.registry_path), template_repository),
         JsonPromptRequestStore(Path(config.prompts.request_store_path)),
         JsonPromptEvaluationStore(Path(config.prompts.evaluation_store_path)),
     )

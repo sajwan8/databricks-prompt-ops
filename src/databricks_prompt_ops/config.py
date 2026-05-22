@@ -35,6 +35,7 @@ class PromptSettings:
     registry_path: str
     request_store_path: str
     evaluation_store_path: str
+    template_directory: str | None
     clarification_prompt_name: str
     llm_prompt_name: str
     rag_prompt_name: str
@@ -64,6 +65,7 @@ class ValidationSettings:
     require_question_for_rag: bool
     require_goal_for_agentic: bool
     block_unsafe_requests: bool
+    validation_approach: str = "rule_based_validation"
     max_prompt_length: int = 4000
     block_sensitive_data: bool = True
     normalize_whitespace: bool = True
@@ -104,7 +106,16 @@ def load_config(config_path: str | Path) -> PromptOpsConfig:
             environment=raw["pipeline"]["environment"],
         ),
         models=ModelSettings(**raw["models"]),
-        prompts=PromptSettings(**raw["prompts"]),
+        prompts=PromptSettings(
+            registry_path=raw["prompts"]["registry_path"],
+            request_store_path=raw["prompts"]["request_store_path"],
+            evaluation_store_path=raw["prompts"]["evaluation_store_path"],
+            template_directory=raw["prompts"].get("template_directory"),
+            clarification_prompt_name=raw["prompts"]["clarification_prompt_name"],
+            llm_prompt_name=raw["prompts"]["llm_prompt_name"],
+            rag_prompt_name=raw["prompts"]["rag_prompt_name"],
+            agentic_prompt_name=raw["prompts"]["agentic_prompt_name"],
+        ),
         storage=StorageSettings(
             backend=StorageBackend(storage_raw.get("backend", StorageBackend.JSON.value)),
             catalog=storage_raw.get("catalog"),
@@ -117,10 +128,11 @@ def load_config(config_path: str | Path) -> PromptOpsConfig:
         databricks=DatabricksSettings(**raw["databricks"]),
         validation=ValidationSettings(
             min_prompt_length=validation_raw["min_prompt_length"],
-            max_prompt_length=validation_raw.get("max_prompt_length", 4000),
             require_question_for_rag=validation_raw["require_question_for_rag"],
             require_goal_for_agentic=validation_raw["require_goal_for_agentic"],
             block_unsafe_requests=validation_raw["block_unsafe_requests"],
+            validation_approach=validation_raw.get("validation_approach", "rule_based_validation"),
+            max_prompt_length=validation_raw.get("max_prompt_length", 4000),
             block_sensitive_data=validation_raw.get("block_sensitive_data", True),
             normalize_whitespace=validation_raw.get("normalize_whitespace", True),
         ),

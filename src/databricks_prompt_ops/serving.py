@@ -27,4 +27,5 @@ def handle_request(payload: dict, config_path: str = "configs/prompt_pipeline_co
         "pipeline_type": result.pipeline_type,
         "prompt_id": result.prompt_id,
         "routed_downstream": result.routed_downstream,
+        "inference_model_name": result.inference_model_name,
     }
