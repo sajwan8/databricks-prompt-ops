@@ -1,0 +1,1 @@
+"""Bundled prompt template assets."""

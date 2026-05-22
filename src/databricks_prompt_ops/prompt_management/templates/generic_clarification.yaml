@@ -1,0 +1,9 @@
+name: generic_clarification
+version: 1.0.0
+description: Used to ask the user for more information when the prompt is incomplete.
+template: |
+  I need more information before I can continue. Please provide:
+  {issues}
+tags:
+  - clarification
+  - validation

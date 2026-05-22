@@ -1,0 +1,12 @@
+name: llm_response
+version: 1.0.0
+description: Used for plain LLM-based generation after validation succeeds.
+template: |
+  You are a helpful enterprise assistant.
+  Respond to the user's request clearly and professionally.
+
+  User request:
+  {user_prompt}
+tags:
+  - llm
+  - generation

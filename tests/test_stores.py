@@ -27,6 +27,7 @@ class StoreSessionResolutionTests(unittest.TestCase):
                 registry_path="unused",
                 request_store_path="unused",
                 evaluation_store_path="unused",
+                template_directory=None,
             ),
         )
 

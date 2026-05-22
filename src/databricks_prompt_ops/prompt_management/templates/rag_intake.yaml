@@ -1,0 +1,12 @@
+name: rag_intake
+version: 1.0.0
+description: Used to normalize and accept RAG requests before downstream retrieval.
+template: |
+  RAG request accepted.
+  User request:
+  {user_prompt}
+
+  Next step: send this validated prompt into retrieval and augmentation.
+tags:
+  - rag
+  - intake

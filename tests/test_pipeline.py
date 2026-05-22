@@ -14,20 +14,21 @@ class PromptOpsPipelineTests(unittest.TestCase):
         config_path = workspace / "prompt_pipeline_config.toml"
         config_path.write_text(
             textwrap.dedent(
-                f"""
+                """
                 [pipeline]
                 name = "databricks-prompt-ops"
                 type = "generative_ai"
                 environment = "test"
 
                 [models]
-                llm_model = "databricks-meta-llama-3-3-70b-instruct"
+                llm_model = "gpt-4.1"
                 fallback_model = "sample-local-model"
 
                 [prompts]
-                registry_path = "{(workspace / "prompt_registry.json").as_posix()}"
-                request_store_path = "{(workspace / "prompt_requests.json").as_posix()}"
-                evaluation_store_path = "{(workspace / "prompt_evaluations.json").as_posix()}"
+                registry_path = "REGISTRY_STORE_PATH"
+                request_store_path = "REQUEST_STORE_PATH"
+                evaluation_store_path = "EVALUATION_STORE_PATH"
+                template_directory = "src/databricks_prompt_ops/prompt_management/templates"
                 clarification_prompt_name = "generic_clarification"
                 llm_prompt_name = "llm_response"
                 rag_prompt_name = "rag_intake"
@@ -35,6 +36,7 @@ class PromptOpsPipelineTests(unittest.TestCase):
 
                 [storage]
                 backend = "json"
+                prefer_databricks_connect = false
 
                 [databricks]
                 workspace_url = "https://example.cloud.databricks.com"
@@ -45,6 +47,7 @@ class PromptOpsPipelineTests(unittest.TestCase):
                 require_question_for_rag = true
                 require_goal_for_agentic = true
                 block_unsafe_requests = true
+                validation_approach = "rule_based_validation"
                 max_prompt_length = 4000
                 block_sensitive_data = true
                 normalize_whitespace = true
@@ -56,7 +59,11 @@ class PromptOpsPipelineTests(unittest.TestCase):
                 min_fairness_score = 0.70
                 min_overall_score = 0.70
                 """
-            ).strip(),
+            )
+            .strip()
+            .replace("REGISTRY_STORE_PATH", (workspace / "prompt_registry.json").as_posix())
+            .replace("REQUEST_STORE_PATH", (workspace / "prompt_requests.json").as_posix())
+            .replace("EVALUATION_STORE_PATH", (workspace / "prompt_evaluations.json").as_posix()),
             encoding="utf-8",
         )
         return config_path
@@ -74,8 +81,9 @@ class PromptOpsPipelineTests(unittest.TestCase):
             )
             self.assertEqual(result.status, "needs_clarification")
             self.assertFalse(result.validation_report.is_valid)
+            self.assertEqual(result.validation_report.validation_approach, "rule_based_validation")
 
-    def test_valid_prompt_returns_response(self) -> None:
+    def test_valid_prompt_returns_response_with_model_and_prompt_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             pipeline = self._build_pipeline(Path(tmp_dir))
             result = pipeline.process_user_message(
@@ -86,6 +94,12 @@ class PromptOpsPipelineTests(unittest.TestCase):
             self.assertEqual(result.status, "completed")
             self.assertTrue(result.validation_report.is_valid)
             self.assertTrue(result.routed_downstream)
+            self.assertEqual(result.inference_model_name, "sample-local-model")
+            self.assertEqual(result.registered_prompt.raw_user_input, "Write a customer-ready response explaining the claims review timeline in bullet points.")
+            self.assertIn("You are a helpful enterprise assistant.", result.registered_prompt.modified_prompt)
+            self.assertEqual(result.registered_prompt.validation_approach, "rule_based_validation")
+            self.assertEqual(result.registered_prompt.prompt_template_name, "llm_response")
+            self.assertTrue(result.registered_prompt.prompt_template_source.endswith("llm_response.yaml"))
 
     def test_sensitive_data_prompt_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -111,7 +125,7 @@ class PromptOpsPipelineTests(unittest.TestCase):
             self.assertIsNotNone(result.evaluation_report)
             self.assertLess(result.evaluation_report.fairness_score, 0.70)
 
-    def test_prompt_is_normalized_before_evaluation_and_routing(self) -> None:
+    def test_prompt_is_normalized_before_templating(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             pipeline = self._build_pipeline(Path(tmp_dir))
             result = pipeline.process_user_message(
@@ -120,6 +134,22 @@ class PromptOpsPipelineTests(unittest.TestCase):
                 prompt_text="  Write   a claims summary   for the customer in bullet format.  ",
             )
             self.assertEqual(result.validation_report.normalized_prompt, "Write a claims summary for the customer in bullet format.")
+            self.assertIn("Write a claims summary for the customer in bullet format.", result.registered_prompt.modified_prompt)
+
+    def test_evaluation_report_contains_additional_quality_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pipeline = self._build_pipeline(Path(tmp_dir))
+            result = pipeline.process_user_message(
+                user_id="user-6",
+                session_id="session-6",
+                prompt_text="Write a customer response about the claims timeline with accurate bullet points and include all important details.",
+            )
+            self.assertIsNotNone(result.evaluation_report)
+            self.assertTrue(hasattr(result.evaluation_report, "toxicity_score"))
+            self.assertTrue(hasattr(result.evaluation_report, "correctness_score"))
+            self.assertTrue(hasattr(result.evaluation_report, "completeness_score"))
+            self.assertTrue(hasattr(result.evaluation_report, "consistency_score"))
+            self.assertTrue(hasattr(result.evaluation_report, "relevance_score"))
 
 
 if __name__ == "__main__":

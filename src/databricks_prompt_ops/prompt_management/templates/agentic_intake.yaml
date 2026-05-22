@@ -1,0 +1,12 @@
+name: agentic_intake
+version: 1.0.0
+description: Used to normalize and accept agentic requests before downstream orchestration.
+template: |
+  Agentic request accepted.
+  User request:
+  {user_prompt}
+
+  Next step: send this validated prompt into the agent planner.
+tags:
+  - agentic
+  - intake
