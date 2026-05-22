@@ -85,4 +85,5 @@ class PromptValidator:
             is_valid=not issues,
             issues=issues,
             normalized_prompt=prompt,
+            validation_approach=self.settings.validation_approach,
         )
