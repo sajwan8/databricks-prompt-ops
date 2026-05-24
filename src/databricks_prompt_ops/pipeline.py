@@ -21,13 +21,13 @@ class DatabricksPromptOpsPipeline:
     def __init__(self, config: PromptOpsConfig, spark_session=None) -> None:
         self.config = config
         self.spark_session = spark_session
+        self.model_client = self._build_model_client()
         self.registry, self.request_store, self.evaluation_store = build_prompt_stores(
             config,
             spark_session=spark_session,
         )
-        self.validator = PromptValidator(config.validation)
+        self.validator = PromptValidator(config.validation, semantic_client=self.model_client)
         self.evaluator = PromptEvaluator()
-        self.model_client = self._build_model_client()
 
     def _build_model_client(self) -> object:
         try:

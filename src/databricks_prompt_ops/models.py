@@ -33,11 +33,20 @@ class PromptRegistration:
 
 
 @dataclass
+class ValidationStageResult:
+    stage_name: str
+    is_valid: bool
+    issues: list[str] = field(default_factory=list)
+    details: str = ""
+
+
+@dataclass
 class PromptValidationReport:
     is_valid: bool
     issues: list[str] = field(default_factory=list)
     normalized_prompt: str = ""
     validation_approach: str = "rule_based_validation"
+    stage_results: list[ValidationStageResult] = field(default_factory=list)
 
 
 @dataclass

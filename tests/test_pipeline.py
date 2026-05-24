@@ -47,7 +47,7 @@ class PromptOpsPipelineTests(unittest.TestCase):
                 require_question_for_rag = true
                 require_goal_for_agentic = true
                 block_unsafe_requests = true
-                validation_approach = "rule_based_validation"
+                validation_approach = "four_stage_validation"
                 max_prompt_length = 4000
                 block_sensitive_data = true
                 normalize_whitespace = true
@@ -81,7 +81,16 @@ class PromptOpsPipelineTests(unittest.TestCase):
             )
             self.assertEqual(result.status, "needs_clarification")
             self.assertFalse(result.validation_report.is_valid)
-            self.assertEqual(result.validation_report.validation_approach, "rule_based_validation")
+            self.assertEqual(result.validation_report.validation_approach, "four_stage_validation")
+            self.assertEqual(
+                [stage.stage_name for stage in result.validation_report.stage_results],
+                [
+                    "structural_validation",
+                    "security_validation",
+                    "domain_validation",
+                    "semantic_validation",
+                ],
+            )
 
     def test_valid_prompt_returns_response_with_model_and_prompt_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -97,9 +106,23 @@ class PromptOpsPipelineTests(unittest.TestCase):
             self.assertEqual(result.inference_model_name, "sample-local-model")
             self.assertEqual(result.registered_prompt.raw_user_input, "Write a customer-ready response explaining the claims review timeline in bullet points.")
             self.assertIn("You are a helpful enterprise assistant.", result.registered_prompt.modified_prompt)
-            self.assertEqual(result.registered_prompt.validation_approach, "rule_based_validation")
+            self.assertEqual(result.registered_prompt.validation_approach, "four_stage_validation")
             self.assertEqual(result.registered_prompt.prompt_template_name, "llm_response")
             self.assertTrue(result.registered_prompt.prompt_template_source.endswith("llm_response.yaml"))
+
+    def test_validation_report_contains_four_stage_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pipeline = self._build_pipeline(Path(tmp_dir))
+            result = pipeline.process_user_message(
+                user_id="user-stages",
+                session_id="session-stages",
+                prompt_text="Write a customer-ready response explaining the claims review timeline in bullet points.",
+            )
+            self.assertEqual(len(result.validation_report.stage_results), 4)
+            self.assertEqual(result.validation_report.stage_results[0].stage_name, "structural_validation")
+            self.assertEqual(result.validation_report.stage_results[1].stage_name, "security_validation")
+            self.assertEqual(result.validation_report.stage_results[2].stage_name, "domain_validation")
+            self.assertEqual(result.validation_report.stage_results[3].stage_name, "semantic_validation")
 
     def test_sensitive_data_prompt_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
