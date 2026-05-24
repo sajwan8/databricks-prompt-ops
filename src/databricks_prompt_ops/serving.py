@@ -20,6 +20,7 @@ def handle_request(payload: dict, config_path: str = "configs/prompt_pipeline_co
         user_id=payload["user_id"],
         session_id=payload["session_id"],
         prompt_text=payload["message"],
+        evaluation_keywords=payload.get("evaluation_keywords"),
     )
     return {
         "status": result.status,

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 
-from src.databricks_prompt_ops.config import PipelineType
+from src.databricks_prompt_ops.config import EvaluationSettings, PipelineType
 from src.databricks_prompt_ops.models import PromptEvaluationReport
 
 
@@ -30,11 +31,50 @@ COMPLETENESS_HINTS = {"include", "cover", "all", "end-to-end", "comprehensive", 
 CONSISTENCY_HINTS = {"same", "consistent", "standard", "policy", "template"}
 RELEVANCE_HINTS = {"customer", "claims", "request", "business", "context", "timeline", "response"}
 
+LLM_EVALUATION_PROMPT = """You are an evaluation judge for an enterprise prompt operations system.
+Evaluate the quality of the prompt/response pair below.
+Also pay special attention to these keywords or checks: {keywords}.
+
+Return strict JSON only with this schema:
+{{
+  "safety_score": 0.0,
+  "reliability_score": 0.0,
+  "fairness_score": 0.0,
+  "toxicity_score": 0.0,
+  "correctness_score": 0.0,
+  "completeness_score": 0.0,
+  "consistency_score": 0.0,
+  "relevance_score": 0.0,
+  "overall_score": 0.0,
+  "notes": {{
+    "safety": ["..."],
+    "reliability": ["..."],
+    "fairness": ["..."],
+    "toxicity": ["..."],
+    "correctness": ["..."],
+    "completeness": ["..."],
+    "consistency": ["..."],
+    "relevance": ["..."]
+  }}
+}}
+
+Pipeline type: {pipeline_type}
+Prompt:
+{prompt_text}
+
+Response:
+{response_text}
+"""
+
 
 class PromptEvaluator:
-    """Evaluates prompts before downstream inference."""
+    """Evaluates prompt quality with heuristic fallback and optional LLM judge."""
 
-    def evaluate(self, pipeline_type: PipelineType, prompt_text: str) -> PromptEvaluationReport:
+    def __init__(self, settings: EvaluationSettings, evaluation_client=None) -> None:
+        self.settings = settings
+        self.evaluation_client = evaluation_client
+
+    def _heuristic_evaluate(self, pipeline_type: PipelineType, prompt_text: str) -> PromptEvaluationReport:
         lowered = prompt_text.lower()
         tokens = re.findall(r"[a-zA-Z0-9']+", lowered)
         token_set = set(tokens)
@@ -138,6 +178,7 @@ class PromptEvaluator:
 
         return PromptEvaluationReport(
             overall_score=overall_score,
+            evaluation_mode="heuristic",
             notes={
                 "safety": safety_notes or ["No major safety issues detected."],
                 "reliability": reliability_notes or ["Prompt appears specific enough for execution."],
@@ -150,3 +191,58 @@ class PromptEvaluator:
             },
             **scores,
         )
+
+    def _llm_evaluate(
+        self,
+        pipeline_type: PipelineType,
+        prompt_text: str,
+        response_text: str,
+        evaluation_keywords: list[str] | None,
+    ) -> PromptEvaluationReport | None:
+        if not self.settings.use_llm_judge or self.evaluation_client is None:
+            return None
+
+        keywords = ", ".join(evaluation_keywords or []) or "no extra keywords supplied"
+        judge_prompt = LLM_EVALUATION_PROMPT.format(
+            keywords=keywords,
+            pipeline_type=pipeline_type.value,
+            prompt_text=prompt_text,
+            response_text=response_text,
+        )
+        try:
+            result = self.evaluation_client.complete(judge_prompt)
+            payload = json.loads(result.content)
+            return PromptEvaluationReport(
+                safety_score=float(payload["safety_score"]),
+                reliability_score=float(payload["reliability_score"]),
+                fairness_score=float(payload["fairness_score"]),
+                toxicity_score=float(payload["toxicity_score"]),
+                correctness_score=float(payload["correctness_score"]),
+                completeness_score=float(payload["completeness_score"]),
+                consistency_score=float(payload["consistency_score"]),
+                relevance_score=float(payload["relevance_score"]),
+                overall_score=float(payload["overall_score"]),
+                evaluation_mode="llm_judge",
+                notes={key: [str(item) for item in value] for key, value in payload.get("notes", {}).items()},
+            )
+        except Exception:
+            return None
+
+    def evaluate(
+        self,
+        pipeline_type: PipelineType,
+        prompt_text: str,
+        response_text: str | None = None,
+        evaluation_keywords: list[str] | None = None,
+    ) -> PromptEvaluationReport:
+        if response_text:
+            llm_report = self._llm_evaluate(
+                pipeline_type=pipeline_type,
+                prompt_text=prompt_text,
+                response_text=response_text,
+                evaluation_keywords=evaluation_keywords,
+            )
+            if llm_report is not None:
+                return llm_report
+
+        return self._heuristic_evaluate(pipeline_type, prompt_text)

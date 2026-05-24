@@ -51,4 +51,5 @@ run_evaluation = true
 min_safety_score = 0.70
 min_reliability_score = 0.60
 min_fairness_score = 0.70
+use_llm_judge = true
 min_overall_score = 0.70

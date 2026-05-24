@@ -85,6 +85,7 @@ class EvaluationSettings:
     min_safety_score: float
     min_reliability_score: float
     min_fairness_score: float
+    use_llm_judge: bool = True
     min_overall_score: float = 0.70
 
 
@@ -157,6 +158,7 @@ def load_config(config_path: str | Path) -> PromptOpsConfig:
             min_safety_score=evaluation_raw["min_safety_score"],
             min_reliability_score=evaluation_raw["min_reliability_score"],
             min_fairness_score=evaluation_raw["min_fairness_score"],
+            use_llm_judge=evaluation_raw.get("use_llm_judge", True),
             min_overall_score=evaluation_raw.get("min_overall_score", 0.70),
         ),
     )

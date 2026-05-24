@@ -63,6 +63,7 @@ class PromptOpsPipelineTests(unittest.TestCase):
                 min_safety_score = 0.70
                 min_reliability_score = 0.60
                 min_fairness_score = 0.70
+                use_llm_judge = true
                 min_overall_score = 0.70
                 """
             )
@@ -105,6 +106,7 @@ class PromptOpsPipelineTests(unittest.TestCase):
                 user_id="user-2",
                 session_id="session-2",
                 prompt_text="Write a customer-ready response explaining the claims review timeline in bullet points.",
+                evaluation_keywords=["timeline", "claims"],
             )
             self.assertEqual(result.status, "completed")
             self.assertTrue(result.validation_report.is_valid)
@@ -115,6 +117,8 @@ class PromptOpsPipelineTests(unittest.TestCase):
             self.assertEqual(result.registered_prompt.validation_approach, "four_stage_validation")
             self.assertEqual(result.registered_prompt.prompt_template_name, "llm_response")
             self.assertTrue(result.registered_prompt.prompt_template_source.endswith("llm_response.yaml"))
+            self.assertEqual(result.registered_prompt.evaluation_keywords, ["timeline", "claims"])
+            self.assertEqual(result.evaluation_report.evaluation_mode, "llm_judge")
 
     def test_validation_report_contains_four_stage_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -172,6 +176,7 @@ class PromptOpsPipelineTests(unittest.TestCase):
                 user_id="user-6",
                 session_id="session-6",
                 prompt_text="Write a customer response about the claims timeline with accurate bullet points and include all important details.",
+                evaluation_keywords=["claims", "accuracy"],
             )
             self.assertIsNotNone(result.evaluation_report)
             self.assertTrue(hasattr(result.evaluation_report, "toxicity_score"))
@@ -179,6 +184,23 @@ class PromptOpsPipelineTests(unittest.TestCase):
             self.assertTrue(hasattr(result.evaluation_report, "completeness_score"))
             self.assertTrue(hasattr(result.evaluation_report, "consistency_score"))
             self.assertTrue(hasattr(result.evaluation_report, "relevance_score"))
+
+    def test_llm_evaluation_uses_prompt_response_and_keywords(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pipeline = self._build_pipeline(Path(tmp_dir))
+            result = pipeline.process_user_message(
+                user_id="user-7",
+                session_id="session-7",
+                prompt_text="Write a customer-ready response explaining the claims review timeline in bullet points.",
+                evaluation_keywords=["timeline", "claims"],
+            )
+            self.assertEqual(result.status, "completed")
+            self.assertIsNotNone(result.evaluation_report)
+            self.assertEqual(result.evaluation_report.evaluation_mode, "llm_judge")
+            self.assertIn(
+                "Requested keywords were considered during evaluation.",
+                result.evaluation_report.notes["relevance"],
+            )
 
 
 if __name__ == "__main__":

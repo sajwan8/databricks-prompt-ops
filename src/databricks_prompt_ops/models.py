@@ -29,6 +29,7 @@ class PromptRegistration:
     prompt_template_name: str | None = None
     prompt_template_version: str | None = None
     prompt_template_source: str | None = None
+    evaluation_keywords: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -60,6 +61,7 @@ class PromptEvaluationReport:
     consistency_score: float
     relevance_score: float
     overall_score: float
+    evaluation_mode: str = "heuristic"
     notes: dict[str, list[str]] = field(default_factory=dict)
 
 

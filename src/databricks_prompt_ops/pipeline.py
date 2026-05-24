@@ -7,7 +7,7 @@ from src.databricks_prompt_ops.config import PipelineType, PromptOpsConfig
 from src.databricks_prompt_ops.evaluation import PromptEvaluator
 from src.databricks_prompt_ops.logging_utils import get_logger
 from src.databricks_prompt_ops.models import ModelCompletionResult, PromptOpsResponse, PromptRegistration, PromptTemplate, PromptValidationReport
-from src.databricks_prompt_ops.serving_client import DatabricksServingClient, SampleModelClient
+from src.databricks_prompt_ops.serving_client import DatabricksServingClient, ResilientModelClient, SampleModelClient
 from src.databricks_prompt_ops.stores import build_prompt_stores
 from src.databricks_prompt_ops.validation import PromptValidator
 
@@ -27,15 +27,16 @@ class DatabricksPromptOpsPipeline:
             spark_session=spark_session,
         )
         self.validator = PromptValidator(config.validation, semantic_client=self.model_client)
-        self.evaluator = PromptEvaluator()
+        self.evaluator = PromptEvaluator(config.evaluation, evaluation_client=self.model_client)
 
     def _build_model_client(self) -> object:
         try:
-            return DatabricksServingClient(
+            primary_client = DatabricksServingClient(
                 workspace_url=self.config.databricks.workspace_url,
                 serving_endpoint=self.config.databricks.serving_endpoint,
                 configured_model_name=self.config.models.llm_model,
             )
+            return ResilientModelClient(primary_client, self.config.models.fallback_model)
         except Exception:
             return SampleModelClient(self.config.models.fallback_model)
 
@@ -65,6 +66,7 @@ class DatabricksPromptOpsPipeline:
         prompt_template: PromptTemplate | None = None,
         inference_model_name: str | None = None,
         prompt_id: str | None = None,
+        evaluation_keywords: list[str] | None = None,
     ) -> PromptRegistration:
         return PromptRegistration(
             prompt_id=prompt_id or str(uuid.uuid4()),
@@ -79,17 +81,29 @@ class DatabricksPromptOpsPipeline:
             prompt_template_name=prompt_template.name if prompt_template else None,
             prompt_template_version=prompt_template.version if prompt_template else None,
             prompt_template_source=prompt_template.source_path if prompt_template else None,
+            evaluation_keywords=evaluation_keywords or [],
             metadata={
                 "pipeline_name": self.config.pipeline.name,
                 "environment": self.config.pipeline.environment,
             },
         )
 
-    def _evaluate_prompt_gate(self, prompt_id: str, modified_prompt: str):
+    def _evaluate_prompt_gate(
+        self,
+        prompt_id: str,
+        modified_prompt: str,
+        response_text: str | None = None,
+        evaluation_keywords: list[str] | None = None,
+    ):
         if not self.config.evaluation.run_evaluation:
             return None
 
-        evaluation_report = self.evaluator.evaluate(self.config.pipeline.type, modified_prompt)
+        evaluation_report = self.evaluator.evaluate(
+            self.config.pipeline.type,
+            modified_prompt,
+            response_text=response_text,
+            evaluation_keywords=evaluation_keywords,
+        )
         self.evaluation_store.save(prompt_id, evaluation_report)
 
         fails_threshold = (
@@ -107,7 +121,13 @@ class DatabricksPromptOpsPipeline:
             LOGGER.warning("Databricks serving call failed, falling back to sample model: %s", exc)
             return SampleModelClient(self.config.models.fallback_model).complete(modified_prompt)
 
-    def process_user_message(self, user_id: str, session_id: str, prompt_text: str) -> PromptOpsResponse:
+    def process_user_message(
+        self,
+        user_id: str,
+        session_id: str,
+        prompt_text: str,
+        evaluation_keywords: list[str] | None = None,
+    ) -> PromptOpsResponse:
         validation_report = self.validator.validate(self.config.pipeline.type, prompt_text)
 
         if not validation_report.is_valid:
@@ -117,6 +137,7 @@ class DatabricksPromptOpsPipeline:
                 raw_user_input=prompt_text,
                 modified_prompt=validation_report.normalized_prompt,
                 validation_report=validation_report,
+                evaluation_keywords=evaluation_keywords,
             )
             self.request_store.register(registration)
             return PromptOpsResponse(
@@ -142,10 +163,48 @@ class DatabricksPromptOpsPipeline:
             validation_report=validation_report,
             prompt_template=prompt_template,
             prompt_id=None,
+            evaluation_keywords=evaluation_keywords,
         )
 
         evaluation_report = None
-        evaluation_result = self._evaluate_prompt_gate(registration.prompt_id, modified_prompt)
+        inference_model_name = None
+        llm_response = None
+        if self.config.pipeline.type == PipelineType.GENERATIVE_AI:
+            inference_result = self._run_model_inference(modified_prompt)
+            inference_model_name = inference_result.model_name
+            llm_response = inference_result.content
+            assistant_message = inference_result.content
+            evaluation_result = self._evaluate_prompt_gate(
+                registration.prompt_id,
+                modified_prompt,
+                response_text=llm_response,
+                evaluation_keywords=evaluation_keywords,
+            )
+        elif self.config.pipeline.type == PipelineType.RAG:
+            assistant_message = (
+                "Prompt validated and registered successfully. "
+                "This request is ready for the downstream RAG retrieval and augmentation pipeline.\n\n"
+                f"{modified_prompt}"
+            )
+            evaluation_result = self._evaluate_prompt_gate(
+                registration.prompt_id,
+                modified_prompt,
+                response_text=None,
+                evaluation_keywords=evaluation_keywords,
+            )
+        else:
+            assistant_message = (
+                "Prompt validated and registered successfully. "
+                "This request is ready for the downstream agent planner.\n\n"
+                f"{modified_prompt}"
+            )
+            evaluation_result = self._evaluate_prompt_gate(
+                registration.prompt_id,
+                modified_prompt,
+                response_text=None,
+                evaluation_keywords=evaluation_keywords,
+            )
+
         if evaluation_result is not None:
             evaluation_report, failed_evaluation = evaluation_result
             if failed_evaluation:
@@ -160,28 +219,8 @@ class DatabricksPromptOpsPipeline:
                     evaluation_report=evaluation_report,
                     routed_downstream=False,
                     llm_response=None,
-                    inference_model_name=None,
+                    inference_model_name=inference_model_name,
                 )
-
-        inference_model_name = None
-        llm_response = None
-        if self.config.pipeline.type == PipelineType.GENERATIVE_AI:
-            inference_result = self._run_model_inference(modified_prompt)
-            inference_model_name = inference_result.model_name
-            llm_response = inference_result.content
-            assistant_message = inference_result.content
-        elif self.config.pipeline.type == PipelineType.RAG:
-            assistant_message = (
-                "Prompt validated and registered successfully. "
-                "This request is ready for the downstream RAG retrieval and augmentation pipeline.\n\n"
-                f"{modified_prompt}"
-            )
-        else:
-            assistant_message = (
-                "Prompt validated and registered successfully. "
-                "This request is ready for the downstream agent planner.\n\n"
-                f"{modified_prompt}"
-            )
 
         registration = self._build_registration(
             user_id=user_id,
@@ -192,6 +231,7 @@ class DatabricksPromptOpsPipeline:
             prompt_template=prompt_template,
             inference_model_name=inference_model_name,
             prompt_id=registration.prompt_id,
+            evaluation_keywords=evaluation_keywords,
         )
         self.request_store.register(registration)
 
