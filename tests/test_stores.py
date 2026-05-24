@@ -31,7 +31,7 @@ class StoreSessionResolutionTests(unittest.TestCase):
             ),
         )
 
-        with patch("src.databricks_prompt_ops.stores.DeltaPromptRegistryStore", return_value="registry"), patch(
+        with patch("src.databricks_prompt_ops.stores.MlflowPromptRegistryStore", return_value="registry"), patch(
             "src.databricks_prompt_ops.stores.DeltaPromptRequestStore",
             return_value="request_store",
         ), patch(

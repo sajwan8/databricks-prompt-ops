@@ -15,6 +15,22 @@ class SampleModelClient:
 
     def complete(self, prompt_text: str) -> ModelCompletionResult:
         lowered = prompt_text.lower()
+        if "return strict json with this schema" in lowered and "semantic quality only" in lowered:
+            issues: list[str] = []
+            if "worse managers" in lowered:
+                issues.append("The request contains harmful or discriminatory framing that makes the intent unacceptable.")
+            if "business prompt:" in lowered and len(prompt_text.split()) < 30:
+                issues.append("The request would benefit from more business context or output constraints.")
+            return ModelCompletionResult(
+                content=json.dumps(
+                    {
+                        "is_valid": not issues,
+                        "issues": issues,
+                        "details": "Sample semantic validation completed.",
+                    }
+                ),
+                model_name=self.model_name,
+            )
         if "claims review timeline" in lowered:
             return ModelCompletionResult(
                 content="The claims review timeline is 7 business days based on the request you provided.",

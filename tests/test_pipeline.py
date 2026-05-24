@@ -38,6 +38,12 @@ class PromptOpsPipelineTests(unittest.TestCase):
                 backend = "json"
                 prefer_databricks_connect = false
 
+                [mlflow]
+                tracking_uri = ""
+                registry_uri = ""
+                prompt_alias = "latest"
+                sync_prompts_on_startup = true
+
                 [databricks]
                 workspace_url = "https://example.cloud.databricks.com"
                 serving_endpoint = "unit-test-endpoint"

@@ -209,67 +209,113 @@ class PromptRegistryStore:
         raise NotImplementedError
 
 
-class JsonPromptRegistryStore(PromptRegistryStore):
-    def __init__(self, file_path: str | Path, template_repository: PromptTemplateRepository) -> None:
-        self.store = JsonListStore(file_path)
-        self.template_repository = template_repository
-        self._seed_defaults()
-
-    def _seed_defaults(self) -> None:
-        records = [asdict(item) for item in self.template_repository.load_all()]
-        self.store.save(records)
-
-    def get(self, name: str) -> PromptTemplate:
-        return self.template_repository.get(name)
-
-
-class DeltaPromptRegistryStore(PromptRegistryStore):
+class MlflowPromptRegistryStore(PromptRegistryStore):
     def __init__(
         self,
-        catalog: str | None,
-        schema: str | None,
-        table_name: str,
         template_repository: PromptTemplateRepository,
-        prefer_databricks_connect: bool = True,
-        spark_session=None,
+        tracking_uri: str | None = None,
+        registry_uri: str | None = None,
+        prompt_alias: str = "latest",
+        sync_prompts_on_startup: bool = True,
+        configured_model_name: str | None = None,
     ) -> None:
-        self.store = UnityCatalogDeltaStore(
-            catalog=catalog,
-            schema=schema,
-            table_name=table_name,
-            prefer_databricks_connect=prefer_databricks_connect,
-            spark_session=spark_session,
-        )
         self.template_repository = template_repository
-        self._ensure_table()
-        self._seed_defaults()
+        self.prompt_alias = prompt_alias
+        self.configured_model_name = configured_model_name
+        self._mlflow_available = False
+        self._mlflow_error: Exception | None = None
 
-    def _ensure_table(self) -> None:
-        spark = self.store._spark()
-        self.store.ensure_schema()
-        spark.sql(
-            f"""
-            CREATE TABLE IF NOT EXISTS {self.store.full_table_name} (
-                name STRING,
-                version STRING,
-                description STRING,
-                template STRING,
-                source_path STRING,
-                tags ARRAY<STRING>
-            )
-            USING DELTA
-            """
+        try:
+            import mlflow
+
+            self.mlflow = mlflow
+            if tracking_uri:
+                self.mlflow.set_tracking_uri(tracking_uri)
+            if registry_uri:
+                self.mlflow.set_registry_uri(registry_uri)
+            self._mlflow_available = True
+        except Exception as exc:
+            self.mlflow = None
+            self._mlflow_error = exc
+
+        if self._mlflow_available and sync_prompts_on_startup:
+            self.sync_templates()
+
+    def _prompt_tags(self, template: PromptTemplate) -> dict[str, str]:
+        return {
+            "description": template.description,
+            "source_path": template.source_path,
+            "tags": json.dumps(template.tags),
+        }
+
+    def _prompt_model_config(self) -> dict[str, str]:
+        if not self.configured_model_name:
+            return {}
+        return {"model_name": self.configured_model_name}
+
+    def _load_mlflow_prompt(self, name: str):
+        try:
+            return self.mlflow.genai.load_prompt(f"prompts:/{name}@{self.prompt_alias}")
+        except Exception:
+            return self.mlflow.genai.load_prompt(name)
+
+    def _register_prompt_version(self, template: PromptTemplate):
+        register_kwargs = {
+            "name": template.name,
+            "template": template.template,
+            "commit_message": f"Sync prompt template from {template.source_path}",
+            "tags": self._prompt_tags(template),
+        }
+        model_config = self._prompt_model_config()
+        if model_config:
+            register_kwargs["model_config"] = model_config
+
+        return self.mlflow.genai.register_prompt(
+            **register_kwargs,
         )
 
-    def _seed_defaults(self) -> None:
-        spark = self.store._spark()
-        records = [asdict(item) for item in self.template_repository.load_all()]
-        spark.createDataFrame(records).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
-            self.store.full_table_name
-        )
+    def sync_templates(self) -> None:
+        if not self._mlflow_available:
+            return
+
+        for template in self.template_repository.load_all():
+            try:
+                existing = self._load_mlflow_prompt(template.name)
+                if (
+                    getattr(existing, "template", None) == template.template
+                    and getattr(existing, "version", None) is not None
+                ):
+                    continue
+            except Exception:
+                existing = None
+
+            prompt = self._register_prompt_version(template)
+            if self.prompt_alias != "latest":
+                try:
+                    self.mlflow.genai.set_prompt_alias(template.name, alias=self.prompt_alias, version=prompt.version)
+                except Exception:
+                    pass
 
     def get(self, name: str) -> PromptTemplate:
-        return self.template_repository.get(name)
+        if not self._mlflow_available:
+            return self.template_repository.get(name)
+
+        prompt = self._load_mlflow_prompt(name)
+        tags = getattr(prompt, "tags", {}) or {}
+        raw_tags = tags.get("tags", "[]") if isinstance(tags, dict) else "[]"
+        try:
+            parsed_tags = json.loads(raw_tags)
+        except Exception:
+            parsed_tags = []
+
+        return PromptTemplate(
+            name=getattr(prompt, "name", name),
+            version=str(getattr(prompt, "version", "")),
+            description=tags.get("description", "") if isinstance(tags, dict) else "",
+            template=getattr(prompt, "template", ""),
+            source_path=tags.get("source_path", f"mlflow:prompts:/{name}@{self.prompt_alias}") if isinstance(tags, dict) else "",
+            tags=parsed_tags,
+        )
 
 
 class PromptRequestStore:
@@ -409,6 +455,15 @@ def build_prompt_stores(
     spark_session=None,
 ) -> tuple[PromptRegistryStore, PromptRequestStore, PromptEvaluationStore]:
     template_repository = PromptTemplateRepository(getattr(config.prompts, "template_directory", None))
+    mlflow_settings = getattr(config, "mlflow", None)
+    registry_store = MlflowPromptRegistryStore(
+        template_repository=template_repository,
+        tracking_uri=getattr(mlflow_settings, "tracking_uri", None),
+        registry_uri=getattr(mlflow_settings, "registry_uri", None),
+        prompt_alias=getattr(mlflow_settings, "prompt_alias", "latest"),
+        sync_prompts_on_startup=getattr(mlflow_settings, "sync_prompts_on_startup", True),
+        configured_model_name=getattr(getattr(config, "models", None), "llm_model", None),
+    )
 
     if config.storage.backend == StorageBackend.DELTA:
         prefer_databricks_connect = getattr(config.storage, "prefer_databricks_connect", True)
@@ -417,13 +472,7 @@ def build_prompt_stores(
             "spark_session": spark_session,
         }
         return (
-            DeltaPromptRegistryStore(
-                catalog=config.storage.catalog,
-                schema=config.storage.schema,
-                table_name=config.storage.registry_table,
-                template_repository=template_repository,
-                **common_kwargs,
-            ),
+            registry_store,
             DeltaPromptRequestStore(
                 catalog=config.storage.catalog,
                 schema=config.storage.schema,
@@ -439,7 +488,7 @@ def build_prompt_stores(
         )
 
     return (
-        JsonPromptRegistryStore(Path(config.prompts.registry_path), template_repository),
+        registry_store,
         JsonPromptRequestStore(Path(config.prompts.request_store_path)),
         JsonPromptEvaluationStore(Path(config.prompts.evaluation_store_path)),
     )

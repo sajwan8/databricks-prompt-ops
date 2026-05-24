@@ -49,6 +49,14 @@ class DatabricksSettings:
 
 
 @dataclass
+class MlflowSettings:
+    tracking_uri: str | None = None
+    registry_uri: str | None = None
+    prompt_alias: str = "latest"
+    sync_prompts_on_startup: bool = True
+
+
+@dataclass
 class StorageSettings:
     backend: StorageBackend = StorageBackend.JSON
     catalog: str | None = None
@@ -86,6 +94,7 @@ class PromptOpsConfig:
     models: ModelSettings
     prompts: PromptSettings
     storage: StorageSettings
+    mlflow: MlflowSettings
     databricks: DatabricksSettings
     validation: ValidationSettings
     evaluation: EvaluationSettings
@@ -96,6 +105,7 @@ def load_config(config_path: str | Path) -> PromptOpsConfig:
         raw = tomllib.load(file)
 
     storage_raw = raw.get("storage", {})
+    mlflow_raw = raw.get("mlflow", {})
     validation_raw = raw["validation"]
     evaluation_raw = raw["evaluation"]
 
@@ -124,6 +134,12 @@ def load_config(config_path: str | Path) -> PromptOpsConfig:
             request_table=storage_raw.get("request_table", "prompt_requests"),
             evaluation_table=storage_raw.get("evaluation_table", "prompt_evaluations"),
             prefer_databricks_connect=storage_raw.get("prefer_databricks_connect", True),
+        ),
+        mlflow=MlflowSettings(
+            tracking_uri=mlflow_raw.get("tracking_uri") or None,
+            registry_uri=mlflow_raw.get("registry_uri") or None,
+            prompt_alias=mlflow_raw.get("prompt_alias", "latest"),
+            sync_prompts_on_startup=mlflow_raw.get("sync_prompts_on_startup", True),
         ),
         databricks=DatabricksSettings(**raw["databricks"]),
         validation=ValidationSettings(

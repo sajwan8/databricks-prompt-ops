@@ -26,6 +26,12 @@ request_table = "prompt_requests"
 evaluation_table = "prompt_evaluations"
 prefer_databricks_connect = true
 
+[mlflow]
+tracking_uri = ""
+registry_uri = ""
+prompt_alias = "latest"
+sync_prompts_on_startup = true
+
 [databricks]
 workspace_url = "https://your-workspace.cloud.databricks.com"
 serving_endpoint = "databricks-meta-llama-3-3-70b-instruct"
@@ -35,7 +41,7 @@ min_prompt_length = 15
 require_question_for_rag = true
 require_goal_for_agentic = true
 block_unsafe_requests = true
-validation_approach = "rule_based_validation"
+validation_approach = "four_stage_validation"
 max_prompt_length = 4000
 block_sensitive_data = true
 normalize_whitespace = true

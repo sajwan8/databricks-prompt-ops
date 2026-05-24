@@ -7,6 +7,7 @@ It includes:
 - Prompt registration and metadata storage
 - Prompt validation
 - Prompt evaluation for safety, reliability, fairness, toxicity, correctness, completeness, consistency, and relevance
+- MLflow Prompt Registry based prompt versioning
 - Configurable pipeline routing for:
   - `rag`
   - `agentic_ai`
@@ -15,6 +16,12 @@ It includes:
 - Git-tracked YAML prompt templates
 - Wheel-friendly `src/` packaging layout
 
+The current validation strategy uses four stages:
+- Structural validation
+- Security validation
+- Domain validation
+- Semantic validation (LLM based, with a fallback path for local/offline runs)
+
 ## What This Module Does
 
 This project does not implement full RAG retrieval or multi-agent orchestration.
@@ -22,6 +29,7 @@ This project does not implement full RAG retrieval or multi-agent orchestration.
 Instead, it handles the prompt lifecycle before downstream execution:
 1. User sends a prompt.
 2. Prompt is validated and normalized.
+   Validation runs through structural, security, domain, and semantic stages.
 3. The current prompt template is loaded from Git-tracked YAML files.
 4. A `modified_prompt` is rendered from the normalized user input plus the selected template.
 5. The modified prompt is evaluated before inference.
@@ -49,7 +57,7 @@ The pipeline now supports two storage modes:
 Prompt templates are stored as YAML files under:
 - `src/databricks_prompt_ops/prompt_management/templates/`
 
-This makes the current prompt templates easy to version in GitHub and easy to package into the wheel.
+These YAML files are the Git-tracked source templates, while runtime prompt registration and versioning now use MLflow Prompt Registry.
 
 `configs/prompt_pipeline_config.toml` is configured for Databricks Delta tables.
 
@@ -97,11 +105,38 @@ For local testing, the module falls back to a deterministic sample model.
 ### Unity Catalog Tables
 
 When `storage.backend = "delta"`, the pipeline automatically creates these Delta tables if they do not already exist:
-- `catalog.schema.prompt_registry`
 - `catalog.schema.prompt_requests`
 - `catalog.schema.prompt_evaluations`
 
-The registry table is seeded automatically from the YAML prompt templates on first run.
+Prompt registry and versioning are handled through MLflow Prompt Registry instead of a custom Delta/JSON registry table. On startup, the pipeline can sync the YAML templates into MLflow prompt versions.
+
+### MLflow Prompt Registry
+
+The pipeline now uses MLflow Prompt Registry for:
+- prompt registration
+- immutable prompt versioning
+- runtime prompt loading by alias
+- associating prompt versions with model configuration
+
+Configured through:
+
+```toml
+[mlflow]
+tracking_uri = ""
+registry_uri = ""
+prompt_alias = "latest"
+sync_prompts_on_startup = true
+```
+
+The implementation uses the official MLflow prompt APIs:
+- `mlflow.genai.register_prompt()`
+- `mlflow.genai.load_prompt()`
+- `mlflow.genai.set_prompt_alias()`
+
+Reference:
+- [MLflow Prompt Registry](https://mlflow.org/docs/latest/genai/prompt-registry/index.html)
+- [Manage Prompt Lifecycles](https://mlflow.org/docs/latest/genai/prompt-registry/manage-prompt-lifecycles-with-aliases/)
+- [Use Prompts in Apps](https://mlflow.org/docs/latest/genai/prompt-registry/use-prompts-in-apps/)
 
 When running outside a Databricks cluster, the Delta store now prefers a Databricks Connect remote Spark session when `storage.prefer_databricks_connect = true`.
 
