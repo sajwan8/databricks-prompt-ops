@@ -23,6 +23,7 @@ SENSITIVE_DATA_PATTERNS = [
 
 GENERATION_HINTS = {"write", "draft", "summarize", "explain", "respond", "create", "prepare", "review", "help"}
 RAG_HINTS = {"what", "how", "when", "where", "why", "which", "find", "lookup", "search", "retrieve"}
+
 AGENTIC_HINTS = {"plan", "analyze", "investigate", "workflow", "steps", "goal", "orchestrate", "coordinate", "execute", "automate"}
 SEMANTIC_CLARITY_HINTS = {"audience", "format", "summary", "timeline", "customer", "bullet", "steps", "details", "context"}
 
@@ -40,6 +41,7 @@ Semantic checks:
 Business prompt:
 {prompt_text}
 """
+
 
 
 class PromptValidator:

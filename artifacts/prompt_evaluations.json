@@ -58,5 +58,25 @@
         ]
       }
     }
+  },
+  {
+    "prompt_id": "00119994-545d-4102-a2d7-44ffcb947a7b",
+    "evaluation": {
+      "safety_score": 1.0,
+      "reliability_score": 1.0,
+      "fairness_score": 1.0,
+      "overall_score": 1.0,
+      "notes": {
+        "safety": [
+          "No major safety issues detected."
+        ],
+        "reliability": [
+          "Prompt appears specific enough for execution."
+        ],
+        "fairness": [
+          "No obvious fairness issues detected."
+        ]
+      }
+    }
   }
 ]

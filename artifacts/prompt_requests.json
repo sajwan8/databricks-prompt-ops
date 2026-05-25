@@ -46,5 +46,17 @@
       "pipeline_name": "databricks-prompt-ops",
       "environment": "dev"
     }
+  },
+  {
+    "prompt_id": "00119994-545d-4102-a2d7-44ffcb947a7b",
+    "user_id": "demo-user",
+    "session_id": "demo-session",
+    "pipeline_type": "generative_ai",
+    "prompt_text": "Write a customer-ready response explaining the claims review timeline",
+    "registered_at": "2026-05-21T07:11:00.586350+00:00",
+    "metadata": {
+      "pipeline_name": "databricks-prompt-ops",
+      "environment": "local-dev"
+    }
   }
 ]
